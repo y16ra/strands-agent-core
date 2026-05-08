@@ -62,10 +62,38 @@ def _memory_status_text() -> str:
     return "有効"
 
 
-async def stream_text(prompt: str, mode: str, session_id: str, placeholder) -> str:
+def _build_prompt_with_history(messages: list[dict], latest_prompt: str) -> str:
+    # Keep only a small rolling window to avoid prompt bloat.
+    history_window = messages[:-1][-8:]
+    if not history_window:
+        return latest_prompt
+
+    lines = []
+    for msg in history_window:
+        role = msg.get("role", "user")
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+        lines.append(f"{role}: {content}")
+
+    if not lines:
+        return latest_prompt
+
+    history_text = "\n".join(lines)
+    return (
+        "以下は直近の会話履歴です。必要に応じて文脈を引き継いで回答してください。\n"
+        f"{history_text}\n\n"
+        f"最新のユーザー入力:\n{latest_prompt}"
+    )
+
+
+async def stream_text(
+    prompt: str, mode: str, session_id: str, placeholder, messages: list[dict]
+) -> str:
     agent = route(prompt, mode, session_id)
+    prompt_with_history = _build_prompt_with_history(messages, prompt)
     chunks: list[str] = []
-    async for event in agent.stream_async(prompt):
+    async for event in agent.stream_async(prompt_with_history):
         if "data" in event:
             chunks.append(event["data"])
             placeholder.markdown("".join(chunks))
@@ -157,6 +185,7 @@ def main() -> None:
                         st.session_state.agent_mode,
                         st.session_state.session_id,
                         placeholder,
+                        st.session_state.messages,
                     )
                 )
             except Exception as exc:  # noqa: BLE001
