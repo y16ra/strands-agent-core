@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 import uuid
 
 import streamlit as st
 
 from router import route
+from tools.file_tools import (
+    WORKING_DIR_ENV_VAR,
+    get_current_branch_name,
+    get_working_dir,
+    is_git_repository,
+)
 
 
 AGENT_MODES = ["自動", "リサーチ", "コード", "ドキュメント"]
@@ -23,6 +31,25 @@ def init_state() -> None:
         st.session_state.agent_mode = "自動"
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
+    if "working_dir" not in st.session_state:
+        st.session_state.working_dir = str(Path.cwd().resolve())
+    if "working_dir_input" not in st.session_state:
+        st.session_state.working_dir_input = st.session_state.working_dir
+
+
+def _apply_working_dir(path_text: str) -> tuple[bool, str]:
+    candidate = Path(path_text).expanduser()
+    if not candidate.is_absolute():
+        return False, "作業ディレクトリは絶対パスで入力してください。"
+    if not candidate.exists():
+        return False, "指定したパスが存在しません。"
+    if not candidate.is_dir():
+        return False, "指定したパスはディレクトリではありません。"
+
+    resolved = str(candidate.resolve())
+    st.session_state.working_dir = resolved
+    os.environ[WORKING_DIR_ENV_VAR] = resolved
+    return True, "作業ディレクトリを更新しました。"
 
 
 async def stream_text(prompt: str, mode: str, session_id: str, placeholder) -> str:
@@ -51,8 +78,31 @@ def main() -> None:
     )
 
     init_state()
+    os.environ[WORKING_DIR_ENV_VAR] = st.session_state.working_dir
 
     with st.sidebar:
+        st.subheader("作業ディレクトリ")
+        st.text_input(
+            "絶対パス",
+            key="working_dir_input",
+            placeholder="/path/to/project",
+        )
+        if st.button("作業ディレクトリを適用", use_container_width=True):
+            ok, message = _apply_working_dir(st.session_state.working_dir_input)
+            if ok:
+                st.success(message)
+            else:
+                st.error(message)
+
+        working_dir = get_working_dir()
+        st.caption(f"作業ディレクトリ: `{working_dir.name or str(working_dir)}`")
+        if is_git_repository():
+            branch_name = get_current_branch_name() or "-"
+            st.caption(f"ブランチ: `{branch_name}`")
+        else:
+            st.caption("ブランチ: `-`")
+
+        st.divider()
         st.session_state.agent_mode = st.radio(
             "エージェント選択",
             AGENT_MODES,
