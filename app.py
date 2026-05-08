@@ -7,6 +7,7 @@ import uuid
 
 import streamlit as st
 
+from config.settings import load_settings
 from router import route
 from tools.file_tools import (
     WORKING_DIR_ENV_VAR,
@@ -50,6 +51,15 @@ def _apply_working_dir(path_text: str) -> tuple[bool, str]:
     st.session_state.working_dir = resolved
     os.environ[WORKING_DIR_ENV_VAR] = resolved
     return True, "作業ディレクトリを更新しました。"
+
+
+def _memory_status_text() -> str:
+    settings = load_settings()
+    if not settings.agentcore_memory_enabled:
+        return "無効 (`AGENTCORE_MEMORY_ENABLED=false`)"
+    if not settings.agentcore_memory_id:
+        return "無効 (`AGENTCORE_MEMORY_ID` 未設定)"
+    return "有効"
 
 
 async def stream_text(prompt: str, mode: str, session_id: str, placeholder) -> str:
@@ -110,7 +120,10 @@ def main() -> None:
         )
         if st.button("会話リセット", use_container_width=True):
             st.session_state.messages = []
+            st.session_state.session_id = str(uuid.uuid4())
             st.rerun()
+
+        st.caption(f"会話メモリ: `{_memory_status_text()}`")
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
